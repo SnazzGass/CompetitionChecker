@@ -45,7 +45,7 @@ public class Verifier {
         setInputs(world, nwbCorner, board);
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.schedule(() -> activeTasks.add(new VerificationTask(player, world, nwbCorner)), 50, TimeUnit.MILLISECONDS);
+        scheduler.schedule(() -> activeTasks.add(new VerificationTask(player, world, nwbCorner, board, 1)), 50, TimeUnit.MILLISECONDS);
     }
 
     private static void setInputs(ServerWorld world, BlockPos nwbCorner, int[][] gameState) {
@@ -71,23 +71,21 @@ public class Verifier {
 
     private static class VerificationTask {
         private static final int TOTAL_TICKS = 600;
-        private static final int CHECK_INTERVAL = 2;
 
         private final ServerPlayerEntity player;
         private final ServerWorld world;
         private final BlockPos corner;
-        private final boolean[] originalOutput;
-        private final boolean[] firstOutput = new boolean[7];
-        private final boolean[] finalOutput = new boolean[7];
+        private final int testCount;
+        private final int[][] gameState;
 
         private int tickCounter = 0;
-        private int ticksUntilFirstOutput = -1;
 
-        VerificationTask(ServerPlayerEntity player, ServerWorld world, BlockPos corner) {
+        VerificationTask(ServerPlayerEntity player, ServerWorld world, BlockPos corner, int[][] gameState, int count) {
             this.player = player;
             this.world = world;
             this.corner = corner;
-            this.originalOutput = readOutputs(world, corner);
+            this.testCount = count;
+            this.gameState = gameState;
         }
 
         boolean tick(ServerWorld server) {
@@ -96,66 +94,33 @@ public class Verifier {
             if (tickCounter == 0) {
                 ServerCommandSource source = player.getCommandSource();
 
-                String command = "tick rate 1200";
+                // speed up the game for the duration of the tests
+                String command = "tick sprint " + 600 * testCount;
                 ParseResults<ServerCommandSource> parse = player.getServer().getCommandManager().getDispatcher().parse(command, source);
-
                 player.getServer().getCommandManager().execute(parse, command);
             }
 
-            int originalOutputs = 0;
-            for (boolean b : originalOutput) if (b) originalOutputs++;
-
-            if (originalOutputs != 0) ticksUntilFirstOutput = -2;
-
             tickCounter++;
-            if (tickCounter % CHECK_INTERVAL != 0) return true;
+            if (tickCounter < TOTAL_TICKS) return true;
 
-            boolean[] current = readOutputs(world, corner);
-            int onCount = 0;
-            for (boolean b : current) if (b) onCount++;
+            // read the machine outputs
+            boolean[] output = readOutputs(world, corner);
 
-            if (ticksUntilFirstOutput == -1 && onCount > 0 && !Arrays.equals(current, originalOutput)) {
-                ticksUntilFirstOutput = tickCounter;
-                System.arraycopy(current, 0, firstOutput, 0, 7);
-                player.sendMessage(Text.literal("§7[CC] Output detected at " + tickCounter + " ticks (" + tickCounter/20.0 + " s)!"), false);
-            }
-
-            if (ticksUntilFirstOutput >= 0 && tickCounter > ticksUntilFirstOutput) {
-                if (!Arrays.equals(current, firstOutput)) {
-                    player.sendMessage(Text.literal("§7[CC] Output changed! Expected: " + Arrays.toString(firstOutput) + " Got: " + Arrays.toString(current)), false);
-                    return false;
+            int onCount = 0; // the number of outputs that are on (powered)
+            int outIndex = -1; // the index of the output that is on
+            for (int i = 0; i < output.length; i++) {
+                if (output[i]) {
+                    onCount++;
+                    outIndex = i;
                 }
             }
 
-            if (tickCounter >= TOTAL_TICKS - CHECK_INTERVAL) {
-                System.arraycopy(current, 0, finalOutput, 0, 7);
-            }
+            if (onCount == 0) player.sendMessage(Text.literal("§7[CC] No output is on!"), false);
+            else if (onCount > 1) player.sendMessage(Text.literal("§7[CC] Multiple outputs! Expected 1, got " + onCount), false);
+            else if (gameState[0][outIndex] != 0) player.sendMessage(Text.literal("§7[CC] Invalid output! Tried to play in a column that is already full"), false);
+            else player.sendMessage(Text.literal("§7[CC] Test passed!"), false);
 
-            if (tickCounter >= TOTAL_TICKS) {
-                ServerCommandSource source = player.getCommandSource();
-
-                String command = "tick rate 20";
-                ParseResults<ServerCommandSource> parse = player.getServer().getCommandManager().getDispatcher().parse(command, source);
-
-                player.getServer().getCommandManager().execute(parse, command);
-
-                validateFinalOutput();
-                return false;
-            }
-
-            return true;
-        }
-
-        private void validateFinalOutput() {
-            int outputsOn = 0;
-            for (boolean b : finalOutput) if (b) outputsOn++;
-
-            if (ticksUntilFirstOutput == -1) player.sendMessage(Text.literal("§7[CC] No output detected within 30 seconds!"), false);
-            else if (outputsOn == 0) player.sendMessage(Text.literal("§7[CC] Output turned off by end!"), false);
-            else if (outputsOn > 1) player.sendMessage(Text.literal("§7[CC] Multiple outputs! Expected 1, got " + outputsOn), false);
-            else if (ticksUntilFirstOutput == -2) player.sendMessage(Text.literal("§7[CC] Valid output detected after 0 ticks. (0,0s)"), false);
-            else if (!Arrays.equals(finalOutput, firstOutput)) player.sendMessage(Text.literal("§7[CC] Output changed! Initial: " + Arrays.toString(firstOutput) + " Final: " + Arrays.toString(finalOutput)), false);
-            else player.sendMessage(Text.literal("§7[CC] Valid output detected after " + ticksUntilFirstOutput + " ticks (" + ticksUntilFirstOutput/20.0 + " s)"), false);
+            return false;
         }
     }
 
