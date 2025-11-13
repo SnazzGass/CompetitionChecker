@@ -132,14 +132,17 @@ public class Verifier {
 
             int onCount = 0; // the number of outputs that are on (powered)
             int outIndex = -1; // the index of the output that is on
+            boolean fullBoard = true;
             for (int i = 0; i < output.length; i++) {
                 if (output[i]) {
                     onCount++;
                     outIndex = i;
                 }
+                if (board[0][i] == 0) fullBoard = false;
             }
 
-            if (onCount == 0) results[testCounter] = 1;
+            if (fullBoard) results[testCounter] = 0; // output doesn't matter because the game is over
+            else if (onCount == 0) results[testCounter] = 1;
             else if (onCount > 1) results[testCounter] = 2;
             else if (board[0][outIndex] != 0) results[testCounter] = 3;
             else results[testCounter] = 0;
