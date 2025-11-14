@@ -83,6 +83,7 @@ public class Verifier {
         private final int testCount;
         private final long[] testSeeds;
         private final int[] results;
+        private int[][] board = new int[0][];
 
         private int tickCounter = 0;
         private int testCounter = 0;
@@ -112,8 +113,6 @@ public class Verifier {
 
         boolean tick(ServerWorld server) {
             if (!world.getRegistryKey().equals(server.getServer().getOverworld().getRegistryKey())) return true;
-
-            int[][] board = new int[0][];
 
             if (tickCounter == 0) {
 
